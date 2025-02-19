@@ -176,9 +176,7 @@ def dbk_message(i_dbk):
 
 class Simulation(object):
     def __init__(self):
-        # self.drlat = 0;
-        # self.drlon = 0;
-        
+
         self.gpslat = 0;
         self.gpslon = 0;
         self.gps_ts = 0;
@@ -240,23 +238,20 @@ class Simulation(object):
 
         
     class Boat(object):
-        def __init__(self, mmsi, name, lat, lon, hdg, stw, status, maneuver, own):
+        def __init__(self, mmsi, name, lat, lon, hdg, stw, drift, status, maneuver, own):
             self.mmsi = mmsi
             self.name = name
             self.lat = float(lat)
             self.lon = float(lon)
             self.stw = float(stw)
             self.hdg = float(hdg)
+            self.drift = float(drift)
             self.status = status
             self.maneuver = maneuver
             self.own = own
             self.last_move = time.time()
-            self.twd = 0
-            self.tws = 0
-            self.twv = 0
             self.curs = 0
             self.curd = 0
-
 
         def show(self):
             if self.own == False:
@@ -267,25 +262,8 @@ class Simulation(object):
                         i_shiptype=79, i_to_bow=100, i_to_stern=50, i_to_port=15, i_to_stbd=15, i_fixtype=3, i_eta_month=0, i_eta_day=0, \
                         i_eta_hour=24, i_eta_minute=60, i_draught=50, i_destination="Timbuktu", i_dte=1, i_spare=0, i_filler=0)
             else:
-                # calculate apparent wind:
-                #print ("self.stw = %3f  self.tws=%3f  self.twd=%3f  self.hdg=%3f" % (self.stw, self.tws, self.twd, self.hdg))
-                twa = (((self.twd + random() * 10 - self.hdg + 180) %360) - 180)/180*math.pi
-                aws = math.sqrt(self.stw**2+self.tws**2 + 2 * self.stw*self.tws*math.cos(twa))
-                try:
-                    angle = math.acos((self.tws * math.cos(twa) + self.stw)/(math.sqrt(self.tws**2 + self.stw**2 + 2*self.tws*self.stw*math.cos(twa))))/math.pi*180
-                except:
-                    angle = 0
-                if (twa < 0):
-                    angle = -(angle)
-                #print ("angle=" + str(angle))
-                awa = (angle) % 360 
-                depth = 4-(math.sin(time.time()/20)+1)**2;
                 my_message = rmc_message (self.lat, self.lon, self.hdg, self.stw) + \
-                                gll_message(self.lat, self.lon, self.hdg, self.stw) + \
-                                mwv_message(awa, aws) + \
-                                hdm_message(self.hdg) + \
-                                vhw_message(self.hdg, self.stw) + \
-                                dbk_message(depth)
+                                gll_message(self.lat, self.lon, self.hdg, self.stw)
             #sys.stdout.write (my_message)    
 
             # TCP
@@ -296,8 +274,8 @@ class Simulation(object):
             
         def move(self, speedup):
             elapsed = time.time() - self.last_move
-            self.lat = self.lat + elapsed * self.stw/3600/60 * speedup * math.cos(self.hdg/180*math.pi)
-            self.lon = self.lon + elapsed * self.stw/3600/60 * speedup * math.sin(self.hdg/180*math.pi) / math.cos(self.lat/180*math.pi)
+            self.lat = self.lat + elapsed * self.stw/3600/60 * speedup * math.cos((self.hdg + self.drift)/180*math.pi)
+            self.lon = self.lon + elapsed * self.stw/3600/60 * speedup * math.sin((self.hdg + self.drift)/180*math.pi) / math.cos(self.lat/180*math.pi)
             
             # apply current
             self.lat = self.lat + elapsed * self.curs/3600/60 * speedup * math.cos(self.curd/180*math.pi)
@@ -323,7 +301,7 @@ class Simulation(object):
     def loadBoat(self):
 
         global drBoat 
-        drBoat = self.Boat("000000000", "Estimated Position", float(52.9), float(4.42), float(0), float(0), 1, 0, False)
+        drBoat = self.Boat("000000000", "Estimated Position", float(52.9), float(4.42), float(0), float(0), float(0), 1, 0, False)
                         
         return True
 
@@ -388,8 +366,8 @@ class SimulatorFrame(wx.Frame):
 
         ## Set up Statictext
         
-        text14 = wx.StaticText(panel)
-        sizer.Add(text14, pos = (0, 5), flag = wx.ALL, border = 3)
+        text15 = wx.StaticText(panel)
+        sizer.Add(text15, pos = (0, 5), flag = wx.ALL, border = 3)
         
         global drBoat
         ## Setup up controls
@@ -468,8 +446,16 @@ class SimulatorFrame(wx.Frame):
         textInterval = wx.TextCtrl(panel, value="10", size=(70,20))
         sizer.Add(textInterval, pos = (4, 2), flag = wx.EXPAND|wx.ALL, border = 3)
         def OnChange_Interval(event):
-            drBoat.interval = float(textInterval.GetValue())
+            drBoat.drift = float(textInterval.GetValue())
         textInterval.Bind(wx.EVT_TEXT, OnChange_Interval, textInterval)
+
+        text14 = wx.StaticText(panel, label = "Drift")
+        sizer.Add(text14, pos = (4, 3), flag = wx.ALL, border = 3)
+        textDrift = wx.TextCtrl(panel, value="0", size=(70,20))
+        sizer.Add(textDrift, pos = (4, 4), flag = wx.EXPAND|wx.ALL, border = 3)
+        def OnChange_Drift(event):
+            drBoat.drift = float(textDrift.GetValue())
+        textDrift.Bind(wx.EVT_TEXT, OnChange_Drift, textDrift)
 
         # Checkboxes
         def onAutoReadToggle(event):
@@ -485,7 +471,7 @@ class SimulatorFrame(wx.Frame):
             else:   
                 self.drTimer.Stop()
         checkAutoDr = wx.CheckBox(panel, label="DR Automatic")
-        sizer.Add(checkAutoDr, pos = (4, 5), flag = wx.ALIGN_LEFT|wx.ALL, border = 3)
+        sizer.Add(checkAutoDr, pos = (5, 2), flag = wx.ALIGN_LEFT|wx.ALL, border = 3)
         checkAutoDr.Bind(wx.EVT_CHECKBOX, onAutoDrToggle)
         checkAutoDr.SetValue(True)
         
@@ -493,7 +479,7 @@ class SimulatorFrame(wx.Frame):
             simulation.showAis = event.IsChecked()
         checkShowAis = wx.CheckBox(panel, label="Show AIS")
         checkShowAis.SetValue(True)
-        sizer.Add(checkShowAis, pos = (5, 5), flag = wx.ALIGN_LEFT|wx.ALL, border = 3)
+        sizer.Add(checkShowAis, pos = (5, 4), flag = wx.ALIGN_LEFT|wx.ALL, border = 3)
         checkShowAis.Bind(wx.EVT_CHECKBOX, onShowAisToggle)
         
         # Set up buttons
@@ -502,14 +488,14 @@ class SimulatorFrame(wx.Frame):
             if checkAutoDr.GetValue():
                 self.drTimer.Start(int(textInterval.GetValue())*1000)
         buttonDrNow = wx.Button(panel, label = "DR Now" )
-        sizer.Add(buttonDrNow, pos = (4, 4), flag = wx.ALIGN_CENTER|wx.ALL, border = 3)
+        sizer.Add(buttonDrNow, pos = (5, 5), flag = wx.ALIGN_CENTER|wx.ALL, border = 3)
         buttonDrNow.Bind(wx.EVT_BUTTON, onMoveDrBoat);
 
         def updateScreen(self):
             elapsed = ""         
             if (simulation.gps_ts != 0) :
                 elapsed = "   " + str(int(time.time() - simulation.gps_ts)) +"s"
-            text14.SetLabel (elapsed)
+            text15.SetLabel (elapsed)
             
             if (int(time.time() - simulation.gps_ts) <= 10) :
                 textGpsLat.SetValue(str(simulation.gpslat))
